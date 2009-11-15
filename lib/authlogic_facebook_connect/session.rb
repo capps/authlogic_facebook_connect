@@ -77,18 +77,15 @@ module AuthlogicFacebookConnect
         facebook_session = controller.facebook_session
         self.attempted_record = facebook_user_class.find(:first, :conditions => { facebook_uid_field => facebook_session.user.uid }).try(:"#{klass}".to_s.underscore)
 
-        unless self.attempted_record || facebook_skip_new_user_creation
-          begin
+        begin
+          unless self.attempted_record
             # Get the user from facebook and create a local user.
             #
             # We assign it after the call to new in case the attribute is protected.
             new_user = klass.new
-            if klass == facebook_user_class
-              new_user.send(:"#{facebook_uid_field}=", facebook_session.user.uid)
-            else
-              new_user.send(:"build_#{facebook_user_class.to_s.underscore}", :"#{facebook_uid_field}" => facebook_session.user.uid)
-            end
+            new_user.send(:"#{facebook_uid_field}=", facebook_session.user.uid)
 
+            RAILS_DEFAULT_LOGGER.error("new user from FB #{facebook_session.inspect}")
             new_user.before_connect(facebook_session) if new_user.respond_to?(:before_connect)
             
             self.attempted_record = new_user
@@ -103,10 +100,12 @@ module AuthlogicFacebookConnect
             else
               self.attempted_record.save_with_validation(false)
             end
-          rescue Facebooker::Session::SessionExpired
-            errors.add_to_base(I18n.t('error_messages.facebooker_session_expired', 
-              :default => "Your Facebook Connect session has expired, please reconnect."))
+          else
+              self.attempted_record.during_connect(facebook_session) if self.attempted_record.respond_to?(:during_connect)
           end
+        rescue Facebooker::Session::SessionExpired
+          errors.add_to_base(I18n.t('error_messages.facebooker_session_expired', 
+            :default => "Your Facebook Connect session has expired, please reconnect."))
         end
       end
 
